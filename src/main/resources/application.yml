@@ -28,6 +28,21 @@ spring:
       name: card
       password: card123
 
+  cloud:
+    stream:
+      default-binder: kafka
+      bindings:
+        paymentApproved-out-0:
+          destination: card.payment.approved
+          content-type: application/json
+        paymentRejected-out-0:
+          destination: card.payment.rejected
+          content-type: application/json
+      kafka:
+        binder:
+          brokers: localhost:9092
+          auto-create-topics: true
+
 server:
   port: 9090
   servlet:

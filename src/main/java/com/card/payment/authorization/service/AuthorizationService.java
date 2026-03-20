@@ -9,16 +9,20 @@ import com.card.payment.authorization.entity.Authorization;
 import com.card.payment.authorization.entity.AuthorizationStatus;
 import com.card.payment.authorization.entity.Card;
 import com.card.payment.authorization.entity.CardType;
+import com.card.payment.authorization.event.PaymentApprovedEvent;
+import com.card.payment.authorization.event.PaymentRejectedEvent;
 import com.card.payment.authorization.repository.AuthorizationRepository;
 import com.card.payment.authorization.repository.CardRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Random;
+import java.util.UUID;
 
 /**
  * 승인 서비스
@@ -34,6 +38,8 @@ public class AuthorizationService {
     private final CardValidationService cardValidationService;
     private final BankClient bankClient;
     private final Random random = new Random();
+
+    private final ApplicationEventPublisher applicationEventPublisher;
     
     /**
      * 승인 요청 처리
@@ -208,7 +214,7 @@ public class AuthorizationService {
      */
     private AuthorizationResponse createApprovedResponse(AuthorizationRequest request, String approvalNumber) {
         LocalDateTime authorizationDate = LocalDateTime.now();
-        
+
         // 승인 내역 저장
         Authorization authorization = Authorization.builder()
                 .transactionId(request.getTransactionId())
@@ -220,11 +226,26 @@ public class AuthorizationService {
                 .status(AuthorizationStatus.APPROVED)
                 .authorizationDate(authorizationDate)
                 .build();
-        
+
         authorizationRepository.save(authorization);
-        
+
         log.info("승인 내역 저장 완료 - 거래 ID: {}, 승인 번호: {}", request.getTransactionId(), approvalNumber);
-        
+
+        // 승인 이벤트 발행
+        applicationEventPublisher.publishEvent(
+                PaymentApprovedEvent.builder()
+                        .eventId(UUID.randomUUID().toString())
+                        .eventType("PAYMENT_APPROVED")
+                        .transactionId(request.getTransactionId())
+                        .approvalNumber(approvalNumber)
+                        .merchantId(request.getMerchantId())
+                        .cardNumberMasked(authorization.getCardNumberMasked())
+                        .amount(request.getAmount())
+                        .responseCode("00")
+                        .approvedAt(authorizationDate)
+                        .build()
+        );
+
         // 승인 응답 생성
         return AuthorizationResponse.builder()
                 .transactionId(request.getTransactionId())
@@ -247,7 +268,7 @@ public class AuthorizationService {
      */
     private AuthorizationResponse createRejectedResponse(AuthorizationRequest request, String responseCode, String message) {
         LocalDateTime authorizationDate = LocalDateTime.now();
-        
+
         // 거절 내역 저장
         Authorization authorization = Authorization.builder()
                 .transactionId(request.getTransactionId())
@@ -259,11 +280,26 @@ public class AuthorizationService {
                 .status(AuthorizationStatus.REJECTED)
                 .authorizationDate(authorizationDate)
                 .build();
-        
+
         authorizationRepository.save(authorization);
-        
+
         log.info("거절 내역 저장 완료 - 거래 ID: {}, 응답 코드: {}", request.getTransactionId(), responseCode);
-        
+
+        // 거절 이벤트 발행
+        applicationEventPublisher.publishEvent(
+                PaymentRejectedEvent.builder()
+                        .eventId(UUID.randomUUID().toString())
+                        .eventType("PAYMENT_REJECTED")
+                        .transactionId(request.getTransactionId())
+                        .merchantId(request.getMerchantId())
+                        .cardNumberMasked(authorization.getCardNumberMasked())
+                        .amount(request.getAmount())
+                        .responseCode(responseCode)
+                        .message(message)
+                        .rejectedAt(authorizationDate)
+                        .build()
+        );
+
         // 거절 응답 생성
         return AuthorizationResponse.builder()
                 .transactionId(request.getTransactionId())
